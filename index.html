@@ -25,6 +25,7 @@
   #qual button { font: inherit; font-size: 3.4vh; color: #fff; background: rgba(18,3,58,.85); border: 2px solid var(--roxo); border-radius: 1vh; padding: .6vh 1.4vw; }
   #qual button.on { background: var(--rosa); border-color: #fff; }
   #chat { border: 0; width: 100%; height: 100%; background: #18181b; }
+  #mini { width: 100%; height: 100%; object-fit: contain; background: #000; }
   #msg { position: absolute; left: 1vw; bottom: 1.5vh; font-size: 3vh; color: #9be7ff; }
 </style>
 </head>
@@ -58,27 +59,47 @@
   /* ===== Chat ===== */
   $('chat').src = `https://www.twitch.tv/embed/${CANAL}/chat?parent=${PAI}&darkpopout`;
 
-  /* ===== Preview ===== */
-  let player = null, qualAtual = ler('qual') || QUALIDADES[0];
+  /* ===== Preview: imagem leve por padrão; vídeo só se você ligar ===== */
+  let player = null, qualAtual = ler('qual') || QUALIDADES[QUALIDADES.length - 1], videoLigado = false;
+  const mini = new Image(); mini.id = 'mini';
+  mini.onload = () => { if (!videoLigado) $('msg').textContent = ''; };
+  mini.onerror = () => { if (!videoLigado) $('msg').textContent = 'Sem imagem (canal offline?)'; };
+  function atualizarMini() { if (!videoLigado) mini.src = `https://static-cdn.jtvnw.net/previews-ttv/live_user_${CANAL}-640x360.jpg?t=${Date.now()}`; }
   function aplicarQualidade() {
     if (!player) return;
     const lista = player.getQualities() || [];
     const alvo = lista.find(q => (q.name || '').startsWith(qualAtual)) || lista.find(q => q.group === 'chunked');
-    if (alvo) player.setQuality(alvo.group);
-    document.querySelectorAll('#qual button').forEach(b => b.classList.toggle('on', b.dataset.q === qualAtual));
+    if (alvo && player.getQuality() !== alvo.group) player.setQuality(alvo.group);
+    document.querySelectorAll('#qual button[data-q]').forEach(b => b.classList.toggle('on', b.dataset.q === qualAtual));
   }
+  const btnV = document.createElement('button');
+  btnV.id = 'btnV'; btnV.textContent = 'Ligar vídeo';
+  $('qual').appendChild(btnV);
   QUALIDADES.forEach(q => {
     const b = document.createElement('button');
-    b.textContent = q + 'p'; b.dataset.q = q;
+    b.textContent = q + 'p'; b.dataset.q = q; b.style.display = 'none';
     b.onclick = () => { qualAtual = q; guardar('qual', q); aplicarQualidade(); };
     $('qual').appendChild(b);
   });
-  try {
-    player = new Twitch.Player('player', { channel: CANAL, parent: [PAI], muted: true, autoplay: true, width: '100%', height: '100%' });
-    player.addEventListener(Twitch.Player.PLAYING, aplicarQualidade);
-    player.addEventListener(Twitch.Player.OFFLINE, () => { $('msg').textContent = 'Canal offline'; });
-    player.addEventListener(Twitch.Player.ONLINE, () => { $('msg').textContent = ''; });
-  } catch (e) { $('msg').textContent = 'Preview não carregou: confira o endereço da página'; }
+  function modoImagem() {
+    videoLigado = false; player = null;
+    $('player').innerHTML = ''; $('player').appendChild(mini); atualizarMini();
+    btnV.textContent = 'Ligar vídeo';
+    document.querySelectorAll('#qual button[data-q]').forEach(b => b.style.display = 'none');
+  }
+  function modoVideo() {
+    videoLigado = true; $('player').innerHTML = ''; $('msg').textContent = '';
+    try {
+      player = new Twitch.Player('player', { channel: CANAL, parent: [PAI], muted: true, autoplay: true, width: '100%', height: '100%' });
+      let jaAplicou = false;
+      player.addEventListener(Twitch.Player.PLAYING, () => { if (!jaAplicou) { jaAplicou = true; aplicarQualidade(); } });
+      player.addEventListener(Twitch.Player.OFFLINE, () => { $('msg').textContent = 'Canal offline'; });
+    } catch (e) { $('msg').textContent = 'Vídeo não carregou'; }
+    btnV.textContent = 'Voltar à imagem';
+    document.querySelectorAll('#qual button[data-q]').forEach(b => b.style.display = '');
+  }
+  btnV.onclick = () => videoLigado ? modoImagem() : modoVideo();
+  modoImagem(); setInterval(atualizarMini, 30000);
 
   /* ===== Espectadores (serviço público; atualiza a cada 45 s) ===== */
   async function viewers() {
