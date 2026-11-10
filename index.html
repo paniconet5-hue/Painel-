@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Painel Tio Gordão</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bungee&family=Nunito:ital,wght@1,900&display=swap');
+  :root { --fundo:#12033a; --barra:#2a0a70; --roxo:#9b3dff; --rosa:#ff2bd6; --azul:#2bb8ff; --texto:#fff; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: var(--fundo); color: var(--texto);
+               font-family: 'Nunito', 'Segoe UI', Arial, sans-serif; font-style: italic; font-weight: 900; -webkit-user-select: none; user-select: none; }
+  #app { display: grid; grid-template-rows: 15vh 1fr; width: 100%; height: 100%; }
+  #barra { display: flex; align-items: stretch; background: linear-gradient(90deg, #3b0ca8, #7a10d0 60%, #a300d8); border-bottom: 2px solid var(--rosa); }
+  .info { flex: 1; min-width: 0; padding: 0 2.2vw; display: flex; flex-direction: column; justify-content: center; border-right: 1px solid rgba(255,255,255,.25); }
+  .info:last-child { border-right: 0; }
+  .rot { font-size: 2.6vh; opacity: .8; }
+  .val { font-family: 'Bungee', 'Impact', sans-serif; font-style: normal; font-weight: 400; font-size: 6vh; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #vVie { color: var(--azul); }
+  #corpo { display: grid; grid-template-columns: 1fr 32vw; min-height: 0; }
+  #lado { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: #000; }
+  #player { flex: 1; min-height: 0; }
+  #player iframe { width: 100%; height: 100%; border: 0; }
+  #qual { position: absolute; right: 1vw; bottom: 1.5vh; display: flex; gap: .8vw; }
+  #qual button { font: inherit; font-size: 3.4vh; color: #fff; background: rgba(18,3,58,.85); border: 2px solid var(--roxo); border-radius: 1vh; padding: .6vh 1.4vw; }
+  #qual button.on { background: var(--rosa); border-color: #fff; }
+  #chat { border: 0; width: 100%; height: 100%; background: #18181b; }
+  #msg { position: absolute; left: 1vw; bottom: 1.5vh; font-size: 3vh; color: #9be7ff; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="barra">
+    <div class="info"><div class="rot">Espectadores</div><div class="val" id="vVie">–</div></div>
+    <div class="info"><div class="rot">Último sub</div><div class="val" id="vSub">–</div></div>
+    <div class="info" id="cSeg"><div class="rot">Último seguidor (toque para trocar)</div><div class="val" id="vSeg">–</div></div>
+  </div>
+  <div id="corpo">
+    <div id="lado">
+      <div id="player"></div>
+      <div id="msg"></div>
+      <div id="qual"></div>
+    </div>
+    <iframe id="chat" title="Chat"></iframe>
+  </div>
+</div>
+
+<script src="https://player.twitch.tv/js/embed/v1.js"></script>
+<script>
+  /* ===== Configurações ===== */
+  const CANAL = 'tiugordao';
+  const PAI = location.hostname || 'localhost';        // a Twitch exige o endereço onde esta página está hospedada
+  const QUALIDADES = ['1080', '720', '360', '160'];    // botões do preview; a primeira é a padrão
+  const $ = id => document.getElementById(id);
+  const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} };
+  const ler = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+
+  /* ===== Chat ===== */
+  $('chat').src = `https://www.twitch.tv/embed/${CANAL}/chat?parent=${PAI}&darkpopout`;
+
+  /* ===== Preview ===== */
+  let player = null, qualAtual = ler('qual') || QUALIDADES[0];
+  function aplicarQualidade() {
+    if (!player) return;
+    const lista = player.getQualities() || [];
+    const alvo = lista.find(q => (q.name || '').startsWith(qualAtual)) || lista.find(q => q.group === 'chunked');
+    if (alvo) player.setQuality(alvo.group);
+    document.querySelectorAll('#qual button').forEach(b => b.classList.toggle('on', b.dataset.q === qualAtual));
+  }
+  QUALIDADES.forEach(q => {
+    const b = document.createElement('button');
+    b.textContent = q + 'p'; b.dataset.q = q;
+    b.onclick = () => { qualAtual = q; guardar('qual', q); aplicarQualidade(); };
+    $('qual').appendChild(b);
+  });
+  try {
+    player = new Twitch.Player('player', { channel: CANAL, parent: [PAI], muted: true, autoplay: true, width: '100%', height: '100%' });
+    player.addEventListener(Twitch.Player.PLAYING, aplicarQualidade);
+    player.addEventListener(Twitch.Player.OFFLINE, () => { $('msg').textContent = 'Canal offline'; });
+    player.addEventListener(Twitch.Player.ONLINE, () => { $('msg').textContent = ''; });
+  } catch (e) { $('msg').textContent = 'Preview não carregou: confira o endereço da página'; }
+
+  /* ===== Espectadores (serviço público; atualiza a cada 45 s) ===== */
+  async function viewers() {
+    try {
+      const t = (await (await fetch('https://decapi.me/twitch/viewercount/' + CANAL, { cache: 'no-store' })).text()).trim();
+      $('vVie').textContent = /^\d+$/.test(t) ? t : 'offline';
+    } catch (e) { $('vVie').textContent = '–'; }
+  }
+  viewers(); setInterval(viewers, 45000);
+
+  /* ===== Último sub (chat anônimo da Twitch, igual ao overlay) ===== */
+  $('vSub').textContent = ler('ultimoSub') || '–';
+  function ouvirSubs(canal, aoSub) {
+    const vistos = new Set(); let ws, ultimo = 0, espera = 2000;
+    const un = v => (v || '').replace(/\\(s|:|\\|r|n)/g, (m, c) => ({ s: ' ', ':': ';', '\\': '\\', r: '', n: '' }[c]));
+    function linha(l) {
+      ultimo = Date.now();
+      if (l.startsWith('PING')) return ws.send('PONG :tmi.twitch.tv');
+      if (l[0] !== '@' || !l.includes(' USERNOTICE ')) return;
+      const t = {};
+      l.slice(1, l.indexOf(' ')).split(';').forEach(p => { const i = p.indexOf('='); t[p.slice(0, i)] = un(p.slice(i + 1)); });
+      const tipo = t['msg-id'], gift = tipo === 'subgift' || tipo === 'anonsubgift';
+      if (!gift && tipo !== 'sub' && tipo !== 'resub') return;
+      if (t.id) { if (vistos.has(t.id)) return; vistos.add(t.id); if (vistos.size > 80) vistos.delete(vistos.values().next().value); }
+      aoSub(gift ? (t['msg-param-recipient-display-name'] || t['msg-param-recipient-user-name']) : (t['display-name'] || t.login));
+    }
+    function conectar() {
+      try { ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443'); } catch (e) { setTimeout(conectar, espera); return; }
+      ws.onopen = () => {
+        ultimo = Date.now(); espera = 2000;
+        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+        ws.send('PASS SCHMOOPIIE'); ws.send('NICK justinfan' + Math.floor(10000 + Math.random() * 80000)); ws.send('JOIN #' + canal);
+      };
+      ws.onmessage = e => String(e.data).split('\r\n').forEach(l => l && linha(l));
+      ws.onerror = () => { try { ws.close(); } catch (x) {} };
+      ws.onclose = () => { setTimeout(conectar, espera); espera = Math.min(espera * 2, 30000); };
+    }
+    setInterval(() => {
+      if (!ws || ws.readyState !== 1) return;
+      if (Date.now() - ultimo > 100000) { ws.onclose = null; try { ws.close(); } catch (x) {} conectar(); }
+      else ws.send('PING :tmi.twitch.tv');
+    }, 30000);
+    conectar();
+  }
+  ouvirSubs(CANAL, nome => { if (!nome) return; guardar('ultimoSub', nome); $('vSub').textContent = nome; });
+
+  /* ===== Último seguidor (sem fonte automática: toque no campo para digitar) ===== */
+  $('vSeg').textContent = ler('ultimoSeg') || '–';
+  $('cSeg').onclick = () => {
+    const n = prompt('Último seguidor:');
+    if (n && n.trim()) { guardar('ultimoSeg', n.trim()); $('vSeg').textContent = n.trim(); }
+  };
+</script>
+</body>
+</html>
